@@ -218,6 +218,12 @@ func TestCalculateNextRetryTime_WithCustomBase(t *testing.T) {
 	}
 }
 
+func TestCalculateNextRetryTimeWithBase(t *testing.T) {
+	before := time.Now().UTC()
+	retryAt := CalculateNextRetryTimeWithBase(3, 15*time.Minute)
+	assert.WithinDuration(t, before.Add(time.Hour), retryAt, time.Second)
+}
+
 func TestEmailQueuePayload_ToSendEmailProviderRequest(t *testing.T) {
 	t.Run("converts all fields correctly", func(t *testing.T) {
 		payload := EmailQueuePayload{

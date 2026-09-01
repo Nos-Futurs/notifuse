@@ -23,6 +23,7 @@ func TestDefaultWorkerConfig(t *testing.T) {
 	assert.Equal(t, 1*time.Second, config.PollInterval)
 	assert.Equal(t, 50, config.BatchSize)
 	assert.Equal(t, 3, config.MaxRetries)
+	assert.Equal(t, time.Minute, config.RetryBase)
 }
 
 func TestNewEmailQueueWorker(t *testing.T) {
@@ -439,7 +440,7 @@ func TestEmailQueueWorker_ProcessEntry_MaxAttemptsExceeded(t *testing.T) {
 			RateLimitPerMinute: 100,
 		},
 		Attempts:    2, // Already 2 attempts
-		MaxAttempts: 3, // Max is 3, so after this attempt it should be deleted
+		MaxAttempts: 3, // Max is 3, so after this attempt it should be retained as exhausted
 	}
 
 	sendErr := errors.New("SMTP connection failed")
@@ -448,8 +449,9 @@ func TestEmailQueueWorker_ProcessEntry_MaxAttemptsExceeded(t *testing.T) {
 	mockQueueRepo.EXPECT().MarkAsProcessing(gomock.Any(), workspaceID, entryID).Return(nil)
 	mockEmailService.EXPECT().SendEmail(gomock.Any(), gomock.Any(), true).Return(sendErr)
 	mockMessageHistoryRepo.EXPECT().Upsert(gomock.Any(), workspaceID, gomock.Any(), gomock.Any()).Return(nil)
-	// Should delete the entry since attempts >= maxAttempts after increment (message_history tracks failure)
-	mockQueueRepo.EXPECT().Delete(gomock.Any(), workspaceID, entryID).Return(nil)
+	// Preserve the exhausted entry with no automatic retry timestamp so it can
+	// be reported and explicitly retried later.
+	mockQueueRepo.EXPECT().MarkAsFailed(gomock.Any(), workspaceID, entryID, sendErr.Error(), nil).Return(nil)
 
 	worker := NewEmailQueueWorker(
 		mockQueueRepo,

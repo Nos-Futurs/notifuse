@@ -444,6 +444,72 @@ ResumeBroadcastRequest:
       description: ID of the broadcast to resume
       example: broadcast_12345
 
+RetryFailedBroadcastRequest:
+  type: object
+  required:
+    - workspace_id
+    - id
+  properties:
+    workspace_id:
+      type: string
+      description: The ID of the workspace
+      example: ws_1234567890
+    id:
+      type: string
+      description: ID of the processed broadcast whose exhausted recipients should be retried
+      example: broadcast_12345
+
+RetryFailedBroadcastResponse:
+  type: object
+  required:
+    - success
+    - retried_count
+  properties:
+    success:
+      type: boolean
+      example: true
+    retried_count:
+      type: integer
+      format: int64
+      description: Number of exhausted recipients requeued
+      example: 23
+
+BroadcastDeliveryStatus:
+  type: object
+  required:
+    - pending
+    - processing
+    - retrying
+    - exhausted
+    - paused
+  properties:
+    pending:
+      type: integer
+      format: int64
+      example: 0
+    processing:
+      type: integer
+      format: int64
+      example: 0
+    retrying:
+      type: integer
+      format: int64
+      description: Recipients still scheduled for automatic retry
+      example: 0
+    exhausted:
+      type: integer
+      format: int64
+      description: Recipients that exhausted automatic delivery attempts
+      example: 23
+    paused:
+      type: integer
+      format: int64
+      example: 0
+    latest_error:
+      type: string
+      description: Full provider error from the most recently exhausted recipient
+      example: 'message rejected with code: 452 daily sending quota reached'
+
 CancelBroadcastRequest:
   type: object
   required:

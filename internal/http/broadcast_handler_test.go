@@ -1578,6 +1578,53 @@ func TestHandleResume(t *testing.T) {
 	})
 }
 
+func TestHandleGetDeliveryStatus(t *testing.T) {
+	handler, mockService, _, _, ctrl := setupBroadcastHandler(t)
+	defer ctrl.Finish()
+
+	latestError := "message rejected with code: 452 daily sending quota reached"
+	mockService.EXPECT().
+		GetBroadcastDeliveryStatus(gomock.Any(), "workspace123", "broadcast123").
+		Return(&domain.EmailQueueSourceStats{Exhausted: 23, LatestError: &latestError}, nil)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/broadcasts.getDeliveryStatus?workspace_id=workspace123&id=broadcast123",
+		nil,
+	)
+	w := httptest.NewRecorder()
+	handler.HandleGetDeliveryStatus(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var response map[string]domain.EmailQueueSourceStats
+	assert.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+	assert.Equal(t, int64(23), response["delivery"].Exhausted)
+	assert.Equal(t, latestError, *response["delivery"].LatestError)
+}
+
+func TestHandleRetryFailed(t *testing.T) {
+	handler, mockService, _, _, ctrl := setupBroadcastHandler(t)
+	defer ctrl.Finish()
+
+	mockService.EXPECT().
+		RetryFailedBroadcast(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req *domain.RetryFailedBroadcastRequest) (int64, error) {
+			assert.Equal(t, "workspace123", req.WorkspaceID)
+			assert.Equal(t, "broadcast123", req.ID)
+			return 23, nil
+		})
+
+	body := bytes.NewBufferString(`{"workspace_id":"workspace123","id":"broadcast123"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/broadcasts.retryFailed", body)
+	w := httptest.NewRecorder()
+	handler.HandleRetryFailed(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var response map[string]interface{}
+	assert.NoError(t, json.NewDecoder(w.Body).Decode(&response))
+	assert.Equal(t, float64(23), response["retried_count"])
+}
+
 // TestHandleSendToIndividual tests the HandleSendToIndividual function
 func TestHandleSendToIndividual(t *testing.T) {
 	handler, mockService, _, mockLogger, ctrl := setupBroadcastHandler(t)
@@ -1731,6 +1778,8 @@ func TestRegisterRoutes(t *testing.T) {
 		"/api/broadcasts.schedule",
 		"/api/broadcasts.pause",
 		"/api/broadcasts.resume",
+		"/api/broadcasts.getDeliveryStatus",
+		"/api/broadcasts.retryFailed",
 		"/api/broadcasts.cancel",
 		"/api/broadcasts.sendToIndividual",
 		"/api/broadcasts.delete",

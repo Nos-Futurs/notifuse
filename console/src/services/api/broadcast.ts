@@ -248,6 +248,29 @@ export interface ResumeBroadcastRequest {
   id: string
 }
 
+export interface RetryFailedBroadcastRequest {
+  workspace_id: string
+  id: string
+}
+
+export interface BroadcastDeliveryStatus {
+  pending: number
+  processing: number
+  retrying: number
+  exhausted: number
+  paused: number
+  latest_error?: string
+}
+
+export interface GetBroadcastDeliveryStatusResponse {
+  delivery: BroadcastDeliveryStatus
+}
+
+export interface RetryFailedBroadcastResponse {
+  success: boolean
+  retried_count: number
+}
+
 export interface CancelBroadcastRequest {
   workspace_id: string
   id: string
@@ -370,6 +393,23 @@ export const broadcastApi = {
 
   resume: async (params: ResumeBroadcastRequest): Promise<{ success: boolean }> => {
     return api.post<{ success: boolean }>('/api/broadcasts.resume', params)
+  },
+
+  getDeliveryStatus: async (
+    params: GetBroadcastRequest
+  ): Promise<GetBroadcastDeliveryStatusResponse> => {
+    const searchParams = new URLSearchParams()
+    searchParams.append('workspace_id', params.workspace_id)
+    searchParams.append('id', params.id)
+    return api.get<GetBroadcastDeliveryStatusResponse>(
+      `/api/broadcasts.getDeliveryStatus?${searchParams.toString()}`
+    )
+  },
+
+  retryFailed: async (
+    params: RetryFailedBroadcastRequest
+  ): Promise<RetryFailedBroadcastResponse> => {
+    return api.post<RetryFailedBroadcastResponse>('/api/broadcasts.retryFailed', params)
   },
 
   cancel: async (params: CancelBroadcastRequest): Promise<{ success: boolean }> => {

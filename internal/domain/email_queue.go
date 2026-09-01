@@ -116,6 +116,18 @@ type EmailQueueStats struct {
 	// Note: Sent entries are deleted immediately, not tracked in stats
 }
 
+// EmailQueueSourceStats provides delivery state for one broadcast or automation.
+// Failed rows with a retry timestamp are still being retried automatically;
+// exhausted rows require an explicit retry from the user.
+type EmailQueueSourceStats struct {
+	Pending     int64   `json:"pending"`
+	Processing  int64   `json:"processing"`
+	Retrying    int64   `json:"retrying"`
+	Exhausted   int64   `json:"exhausted"`
+	Paused      int64   `json:"paused"`
+	LatestError *string `json:"latest_error,omitempty"`
+}
+
 // EmailQueueRepository defines data access for the email queue
 type EmailQueueRepository interface {
 	// Enqueue adds emails to the queue
@@ -139,7 +151,7 @@ type EmailQueueRepository interface {
 	// MarkAsFailed marks an entry as failed and schedules retry
 	MarkAsFailed(ctx context.Context, workspaceID string, id string, errorMsg string, nextRetryAt *time.Time) error
 
-	// Delete removes a queue entry (used when max retries exhausted)
+	// Delete removes an individual queue entry.
 	Delete(ctx context.Context, workspaceID string, entryID string) error
 
 	// SetNextRetry updates next_retry_at WITHOUT incrementing attempts
@@ -155,6 +167,13 @@ type EmailQueueRepository interface {
 
 	// CountBySourceAndStatus counts entries by source and status
 	CountBySourceAndStatus(ctx context.Context, workspaceID string, sourceType EmailQueueSourceType, sourceID string, status EmailQueueStatus) (int64, error)
+
+	// GetSourceStats returns active and exhausted delivery counts for a source.
+	GetSourceStats(ctx context.Context, workspaceID string, sourceType EmailQueueSourceType, sourceID string) (*EmailQueueSourceStats, error)
+
+	// RetryFailedBySource resets only exhausted failed entries so they are picked
+	// up immediately. Returns the number of recipients scheduled for retry.
+	RetryFailedBySource(ctx context.Context, workspaceID string, sourceType EmailQueueSourceType, sourceID string) (int64, error)
 
 	// PauseBySource marks all pending/failed entries for a source as paused.
 	// Processing entries are untouched (mid-send, will complete naturally).
@@ -193,7 +212,7 @@ type EmailQueueRepository interface {
 }
 
 // getEmailQueueRetryBase returns the base retry interval for exponential backoff.
-// Can be overridden via EMAIL_QUEUE_RETRY_BASE environment variable for testing.
+// Can be overridden via EMAIL_QUEUE_RETRY_BASE.
 // Default is 1 minute.
 func getEmailQueueRetryBase() time.Duration {
 	if base := os.Getenv("EMAIL_QUEUE_RETRY_BASE"); base != "" {
@@ -207,11 +226,20 @@ func getEmailQueueRetryBase() time.Duration {
 // CalculateNextRetryTime calculates the next retry time using exponential backoff
 // Backoff: base, 2*base, 4*base for attempts 1, 2, 3 (default base = 1min)
 func CalculateNextRetryTime(attempts int) time.Time {
+	return CalculateNextRetryTimeWithBase(attempts, getEmailQueueRetryBase())
+}
+
+// CalculateNextRetryTimeWithBase calculates exponential backoff from an
+// explicit base duration. Non-positive values fall back to the one-minute
+// default so partially specified worker configs remain safe.
+func CalculateNextRetryTimeWithBase(attempts int, base time.Duration) time.Time {
 	if attempts <= 0 {
 		attempts = 1
 	}
+	if base <= 0 {
+		base = time.Minute
+	}
 	// 2^(attempts-1) * base
-	base := getEmailQueueRetryBase()
 	multiplier := 1 << uint(attempts-1)
 	return time.Now().UTC().Add(time.Duration(multiplier) * base)
 }

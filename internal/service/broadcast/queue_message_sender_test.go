@@ -1250,6 +1250,8 @@ func TestQueueMessageSender_BuildQueueEntry(t *testing.T) {
 	mockMessageHistoryRepo := mocks.NewMockMessageHistoryRepository(ctrl)
 	mockTemplateRepo := mocks.NewMockTemplateRepository(ctrl)
 	mockLogger := pkgmocks.NewMockLogger(ctrl)
+	config := DefaultConfig()
+	config.MaxRetries = 5
 
 	sender := NewQueueMessageSender(
 		mockQueueRepo,
@@ -1258,7 +1260,7 @@ func TestQueueMessageSender_BuildQueueEntry(t *testing.T) {
 		mockTemplateRepo,
 		nil,
 		mockLogger,
-		nil,
+		config,
 		"https://api.example.com",
 	)
 
@@ -1332,7 +1334,7 @@ func TestQueueMessageSender_BuildQueueEntry(t *testing.T) {
 		assert.Contains(t, entry.Payload.Subject, "Hello")
 		assert.NotEmpty(t, entry.Payload.HTMLContent)
 		assert.Equal(t, 100, entry.Payload.RateLimitPerMinute)
-		assert.Equal(t, 3, entry.MaxAttempts)
+		assert.Equal(t, 5, entry.MaxAttempts)
 	})
 
 	t.Run("extracts List-Unsubscribe URL from data", func(t *testing.T) {

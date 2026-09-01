@@ -544,6 +544,74 @@ func TestEmailQueueRepository_CountBySourceAndStatus(t *testing.T) {
 	})
 }
 
+func TestEmailQueueRepository_GetSourceStats(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("separates automatic retries from exhausted failures", func(t *testing.T) {
+		db, mock, cleanup := testutil.SetupMockDB(t)
+		defer cleanup()
+
+		repo := NewEmailQueueRepositoryWithDB(db)
+		mock.ExpectQuery(`SELECT[\s\S]+COUNT\(\*\) FILTER[\s\S]+FROM email_queue`).
+			WithArgs(domain.EmailQueueSourceBroadcast, "broadcast-1").
+			WillReturnRows(sqlmock.NewRows([]string{
+				"pending", "processing", "retrying", "exhausted", "paused", "latest_error",
+			}).AddRow(4, 2, 3, 5, 0, "message rejected with code: 452"))
+
+		stats, err := repo.GetSourceStats(ctx, "workspace-123", domain.EmailQueueSourceBroadcast, "broadcast-1")
+		require.NoError(t, err)
+		assert.Equal(t, int64(4), stats.Pending)
+		assert.Equal(t, int64(2), stats.Processing)
+		assert.Equal(t, int64(3), stats.Retrying)
+		assert.Equal(t, int64(5), stats.Exhausted)
+		assert.Equal(t, "message rejected with code: 452", *stats.LatestError)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("wraps database errors", func(t *testing.T) {
+		db, mock, cleanup := testutil.SetupMockDB(t)
+		defer cleanup()
+
+		repo := NewEmailQueueRepositoryWithDB(db)
+		mock.ExpectQuery(`SELECT`).WillReturnError(errors.New("db down"))
+
+		stats, err := repo.GetSourceStats(ctx, "workspace-123", domain.EmailQueueSourceBroadcast, "broadcast-1")
+		assert.Nil(t, stats)
+		assert.ErrorContains(t, err, "failed to get queue stats by source")
+	})
+}
+
+func TestEmailQueueRepository_RetryFailedBySource(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("resets only exhausted rows", func(t *testing.T) {
+		db, mock, cleanup := testutil.SetupMockDB(t)
+		defer cleanup()
+
+		repo := NewEmailQueueRepositoryWithDB(db)
+		mock.ExpectExec(`UPDATE email_queue[\s\S]+SET status = 'pending', attempts = 0[\s\S]+AND \(next_retry_at IS NULL OR attempts >= max_attempts\)`).
+			WithArgs(domain.EmailQueueSourceBroadcast, "broadcast-1").
+			WillReturnResult(sqlmock.NewResult(0, 5))
+
+		count, err := repo.RetryFailedBySource(ctx, "workspace-123", domain.EmailQueueSourceBroadcast, "broadcast-1")
+		require.NoError(t, err)
+		assert.Equal(t, int64(5), count)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("wraps database errors", func(t *testing.T) {
+		db, mock, cleanup := testutil.SetupMockDB(t)
+		defer cleanup()
+
+		repo := NewEmailQueueRepositoryWithDB(db)
+		mock.ExpectExec(`UPDATE email_queue`).WillReturnError(errors.New("db down"))
+
+		count, err := repo.RetryFailedBySource(ctx, "workspace-123", domain.EmailQueueSourceBroadcast, "broadcast-1")
+		assert.Zero(t, count)
+		assert.ErrorContains(t, err, "failed to retry exhausted queue entries by source")
+	})
+}
+
 // Note: CleanupSent test removed - sent entries are now deleted immediately
 // so there's no need for a cleanup operation
 

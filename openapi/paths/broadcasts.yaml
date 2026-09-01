@@ -414,6 +414,110 @@
             schema:
               $ref: '../components/schemas/common.yaml#/ErrorResponse'
 
+/api/broadcasts.getDeliveryStatus:
+  get:
+    summary: Get broadcast delivery status
+    description: Returns active retry and exhausted-recipient counts after a broadcast has been enqueued.
+    operationId: getBroadcastDeliveryStatus
+    security:
+      - BearerAuth: []
+    parameters:
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+        description: The ID of the workspace
+        example: ws_1234567890
+      - name: id
+        in: query
+        required: true
+        schema:
+          type: string
+        description: The ID of the broadcast
+        example: broadcast_12345
+    responses:
+      '200':
+        description: Delivery status retrieved successfully
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - delivery
+              properties:
+                delivery:
+                  $ref: '../components/schemas/broadcast.yaml#/BroadcastDeliveryStatus'
+      '400':
+        description: Bad request - validation failed
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '401':
+        description: Unauthorized - invalid or missing authentication token
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '404':
+        description: Broadcast not found
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '500':
+        description: Internal server error
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+
+/api/broadcasts.retryFailed:
+  post:
+    summary: Retry failed broadcast recipients
+    description: Requeues only recipients whose automatic delivery attempts are exhausted. This endpoint is restricted in demo mode.
+    operationId: retryFailedBroadcastRecipients
+    security:
+      - BearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas/broadcast.yaml#/RetryFailedBroadcastRequest'
+    responses:
+      '200':
+        description: Exhausted recipients requeued successfully
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/broadcast.yaml#/RetryFailedBroadcastResponse'
+      '400':
+        description: Bad request - validation failed
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '401':
+        description: Unauthorized - invalid or missing authentication token
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '404':
+        description: Broadcast not found
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+      '500':
+        description: Internal server error
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas/common.yaml#/ErrorResponse'
+
 /api/broadcasts.cancel:
   post:
     summary: Cancel a broadcast

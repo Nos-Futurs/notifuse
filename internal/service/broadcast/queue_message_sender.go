@@ -384,12 +384,17 @@ func (s *queueMessageSender) buildQueueEntry(
 	// Note what this stores: htmlContent carries this recipient's nf_id on every
 	// allowed link, and Payload is persisted as JSONB in the workspace's
 	// email_queue table. The row is deleted when the entry is sent
-	// (MarkAsSent) and when the worker gives up on it, but for as long as it
+	// (MarkAsSent), but for as long as it
 	// waits — a long queue, or a broadcast paused mid-send, whose entries keep
 	// status 'paused' until it is resumed or deleted — a credential that stays
 	// valid for domain.WebIdentifyTokenTTL sits in the database. Only the
 	// TrackingSettings struct itself stays out of storage; the HTML it produced
 	// does not.
+	maxAttempts := s.config.MaxRetries
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+
 	entry := &domain.EmailQueueEntry{
 		ID:            uuid.New().String(),
 		Status:        domain.EmailQueueStatusPending,
@@ -414,7 +419,7 @@ func (s *queueMessageSender) buildQueueEntry(
 			ListID:          broadcast.Audience.List,
 			TemplateData:    data, // Store template data for message history
 		},
-		MaxAttempts: 3,
+		MaxAttempts: maxAttempts,
 		CreatedAt:   time.Now().UTC(),
 		UpdatedAt:   time.Now().UTC(),
 	}

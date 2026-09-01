@@ -192,6 +192,20 @@ const StatusBadge = ({ broadcast, remainingTime, progressStats }: StatusBadgePro
           </Tooltip>
         )
       }
+      if (progressStats && progressStats.failedCount > 0) {
+        return (
+          <Tooltip
+            title={t`${progressStats.failedCount.toLocaleString()} recipients could not be handed off after all automatic retries.`}
+          >
+            <span>
+              <Badge
+                status="error"
+                text={t`Partially failed (${progressStats.failedCount.toLocaleString()})`}
+              />
+            </span>
+          </Tooltip>
+        )
+      }
       const completeTooltip = progressStats
         ? t`All ${progressStats.enqueuedCount.toLocaleString()} emails have been processed.`
         : t`All emails have been sent.`
@@ -296,6 +310,7 @@ const BroadcastCard: React.FC<BroadcastCardProps> = ({
   const [testModalOpen, setTestModalOpen] = useState(false)
   const [templateToTest, setTemplateToTest] = useState<Template | null>(null)
   const [progressStats, setProgressStats] = useState<ProgressStats | undefined>()
+  const [isRetryingFailed, setIsRetryingFailed] = useState(false)
 
   const variations = broadcast.test_settings.variations || []
 
@@ -380,6 +395,25 @@ const BroadcastCard: React.FC<BroadcastCardProps> = ({
   const handleTestTemplate = (template: Template) => {
     setTemplateToTest(template)
     setTestModalOpen(true)
+  }
+
+  const handleRetryFailed = async () => {
+    setIsRetryingFailed(true)
+    try {
+      const result = await broadcastApi.retryFailed({ workspace_id: workspaceId, id: broadcast.id })
+      message.success(t`Retrying ${result.retried_count.toLocaleString()} failed recipients.`)
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['broadcast-delivery-status', workspaceId, broadcast.id]
+        }),
+        queryClient.invalidateQueries({ queryKey: ['broadcast-stats', workspaceId, broadcast.id] })
+      ])
+    } catch (error) {
+      message.error(t`Failed to retry recipients`)
+      console.error(error)
+    } finally {
+      setIsRetryingFailed(false)
+    }
   }
 
   // Helper function to render task status badge
@@ -547,6 +581,28 @@ const BroadcastCard: React.FC<BroadcastCardProps> = ({
               className="opacity-70 hover:opacity-100"
             />
           </Tooltip>
+          {broadcast.status === 'processed' && (progressStats?.failedCount ?? 0) > 0 && (
+            <Popconfirm
+              title={t`Retry failed recipients?`}
+              description={t`Only the ${(progressStats?.failedCount ?? 0).toLocaleString()} recipients whose automatic retries were exhausted will be retried.`}
+              onConfirm={handleRetryFailed}
+              okText={t`Retry failed`}
+              cancelText={t`Cancel`}
+              disabled={!permissions?.broadcasts?.write || isRetryingFailed}
+            >
+              <Button
+                type="primary"
+                size="small"
+                danger
+                ghost
+                loading={isRetryingFailed}
+                disabled={!permissions?.broadcasts?.write}
+                icon={<FontAwesomeIcon icon={faRefresh} />}
+              >
+                {t`Retry failed`}
+              </Button>
+            </Popconfirm>
+          )}
           {(broadcast.status === 'draft' || broadcast.status === 'scheduled') && (
             <Tooltip
               title={
@@ -689,6 +745,21 @@ const BroadcastCard: React.FC<BroadcastCardProps> = ({
       className="!mb-6"
     >
       <div className="p-6">
+        {broadcast.status === 'processed' &&
+          progressStats &&
+          progressStats.failedCount > 0 && (
+            <Alert
+              type="error"
+              showIcon
+              className="mb-4"
+              message={t`${progressStats.failedCount.toLocaleString()} recipients failed after all automatic retries.`}
+              description={
+                progressStats.latestError
+                  ? t`Latest provider error: ${progressStats.latestError}`
+                  : t`Retry the failed recipients after resolving the provider error.`
+              }
+            />
+          )}
         {/* Show progress bar when sending */}
         {broadcast.status === 'processed' &&
           enqueuedCount &&

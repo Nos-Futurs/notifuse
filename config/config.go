@@ -183,7 +183,9 @@ type SMTPBridgeConfig struct {
 }
 
 type BroadcastConfig struct {
-	DefaultRateLimit int // Default rate limit per minute for broadcasts (0 means use service default)
+	DefaultRateLimit      int           // Default rate limit per minute for broadcasts (0 means use service default)
+	EmailQueueMaxAttempts int           // Attempts per broadcast recipient before explicit retry is required (0 means 3)
+	EmailQueueRetryBase   time.Duration // Base duration for exponential email retry backoff (0 means 1 minute)
 
 	// AllowPrivateDataFeedHosts disables SSRF protection on broadcast data-feed
 	// requests, allowing feeds to target private/loopback/link-local addresses.
@@ -963,6 +965,8 @@ func LoadWithOptions(opts LoadOptions) (*Config, error) {
 		},
 		Broadcast: BroadcastConfig{
 			DefaultRateLimit:          v.GetInt("BROADCAST_DEFAULT_RATE_LIMIT"),
+			EmailQueueMaxAttempts:     v.GetInt("EMAIL_QUEUE_MAX_ATTEMPTS"),
+			EmailQueueRetryBase:       v.GetDuration("EMAIL_QUEUE_RETRY_BASE"),
 			AllowPrivateDataFeedHosts: v.GetBool("BROADCAST_DATA_FEED_ALLOW_PRIVATE_HOSTS"),
 		},
 		TaskScheduler: TaskSchedulerConfig{

@@ -254,7 +254,7 @@ func (r *EmailQueueRepository) MarkAsFailed(ctx context.Context, workspaceID str
 	return nil
 }
 
-// Delete removes a queue entry (used when max retries exhausted)
+// Delete removes an individual queue entry.
 func (r *EmailQueueRepository) Delete(ctx context.Context, workspaceID string, entryID string) error {
 	db, err := r.getDB(ctx, workspaceID)
 	if err != nil {
@@ -372,6 +372,78 @@ func (r *EmailQueueRepository) CountBySourceAndStatus(ctx context.Context, works
 	}
 
 	return count, nil
+}
+
+// GetSourceStats returns delivery state for one broadcast or automation. A
+// failed row is retrying only while it has a future retry and attempts remain;
+// all other failed rows are exhausted and require an explicit retry.
+func (r *EmailQueueRepository) GetSourceStats(ctx context.Context, workspaceID string, sourceType domain.EmailQueueSourceType, sourceID string) (*domain.EmailQueueSourceStats, error) {
+	db, err := r.getDB(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	query := `
+		SELECT
+			COUNT(*) FILTER (WHERE status = 'pending'),
+			COUNT(*) FILTER (WHERE status = 'processing'),
+			COUNT(*) FILTER (WHERE status = 'failed' AND next_retry_at IS NOT NULL AND attempts < max_attempts),
+			COUNT(*) FILTER (WHERE status = 'failed' AND (next_retry_at IS NULL OR attempts >= max_attempts)),
+			COUNT(*) FILTER (WHERE status = 'paused'),
+			(
+				SELECT failed.last_error
+				FROM email_queue AS failed
+				WHERE failed.source_type = $1 AND failed.source_id = $2
+				  AND failed.status = 'failed'
+				  AND (failed.next_retry_at IS NULL OR failed.attempts >= failed.max_attempts)
+				ORDER BY failed.updated_at DESC
+				LIMIT 1
+			)
+		FROM email_queue
+		WHERE source_type = $1 AND source_id = $2
+	`
+
+	stats := &domain.EmailQueueSourceStats{}
+	var latestError sql.NullString
+	if err := db.QueryRowContext(ctx, query, sourceType, sourceID).Scan(
+		&stats.Pending,
+		&stats.Processing,
+		&stats.Retrying,
+		&stats.Exhausted,
+		&stats.Paused,
+		&latestError,
+	); err != nil {
+		return nil, fmt.Errorf("failed to get queue stats by source: %w", err)
+	}
+	if latestError.Valid {
+		stats.LatestError = &latestError.String
+	}
+
+	return stats, nil
+}
+
+// RetryFailedBySource resets exhausted failures and leaves automatic retries
+// untouched. Keeping the same queue row preserves the exact recipient payload
+// and message ID while preventing duplicate sends to successful recipients.
+func (r *EmailQueueRepository) RetryFailedBySource(ctx context.Context, workspaceID string, sourceType domain.EmailQueueSourceType, sourceID string) (int64, error) {
+	db, err := r.getDB(ctx, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get database connection: %w", err)
+	}
+
+	result, err := db.ExecContext(ctx, `
+		UPDATE email_queue
+		SET status = 'pending', attempts = 0, last_error = NULL,
+			next_retry_at = NULL, updated_at = NOW(), processed_at = NULL
+		WHERE source_type = $1 AND source_id = $2
+		  AND status = 'failed'
+		  AND (next_retry_at IS NULL OR attempts >= max_attempts)
+	`, sourceType, sourceID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to retry exhausted queue entries by source: %w", err)
+	}
+
+	return result.RowsAffected()
 }
 
 // emailQueueExecutor is satisfied by both *sql.DB and *sql.Tx.

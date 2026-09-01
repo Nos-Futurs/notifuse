@@ -742,6 +742,78 @@ func (s *BroadcastService) ResumeBroadcast(ctx context.Context, request *domain.
 	return err
 }
 
+// GetBroadcastDeliveryStatus reports the queue state that remains after the
+// broadcast orchestrator has finished enqueueing recipients.
+func (s *BroadcastService) GetBroadcastDeliveryStatus(ctx context.Context, workspaceID, broadcastID string) (*domain.EmailQueueSourceStats, error) {
+	ctx, _, userWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, workspaceID)
+	if err != nil {
+		s.logger.WithField("broadcast_id", broadcastID).Error("Failed to authenticate user for workspace")
+		return nil, fmt.Errorf("failed to authenticate user: %w", err)
+	}
+	if !userWorkspace.HasPermission(domain.PermissionResourceBroadcasts, domain.PermissionTypeRead) {
+		return nil, domain.NewPermissionError(
+			domain.PermissionResourceBroadcasts,
+			domain.PermissionTypeRead,
+			"Insufficient permissions: read access to broadcasts required",
+		)
+	}
+	if workspaceID == "" || broadcastID == "" {
+		return nil, fmt.Errorf("workspace_id and broadcast id are required")
+	}
+	if _, err := s.repo.GetBroadcast(ctx, workspaceID, broadcastID); err != nil {
+		return nil, err
+	}
+
+	return s.emailQueueRepo.GetSourceStats(ctx, workspaceID, domain.EmailQueueSourceBroadcast, broadcastID)
+}
+
+// RetryFailedBroadcast requeues only recipients whose automatic retries have
+// been exhausted. Successful recipients and failures still on automatic
+// backoff are left untouched.
+func (s *BroadcastService) RetryFailedBroadcast(ctx context.Context, request *domain.RetryFailedBroadcastRequest) (int64, error) {
+	ctx, _, userWorkspace, err := s.authService.AuthenticateUserForWorkspace(ctx, request.WorkspaceID)
+	if err != nil {
+		s.logger.WithField("broadcast_id", request.ID).Error("Failed to authenticate user for workspace")
+		return 0, fmt.Errorf("failed to authenticate user: %w", err)
+	}
+	if !userWorkspace.HasPermission(domain.PermissionResourceBroadcasts, domain.PermissionTypeWrite) {
+		return 0, domain.NewPermissionError(
+			domain.PermissionResourceBroadcasts,
+			domain.PermissionTypeWrite,
+			"Insufficient permissions: write access to broadcasts required",
+		)
+	}
+	if err := request.Validate(); err != nil {
+		return 0, err
+	}
+
+	broadcast, err := s.repo.GetBroadcast(ctx, request.WorkspaceID, request.ID)
+	if err != nil {
+		return 0, err
+	}
+	if broadcast.Status != domain.BroadcastStatusProcessed {
+		return 0, fmt.Errorf("only processed broadcasts can retry failed recipients, current status: %s", broadcast.Status)
+	}
+
+	retried, err := s.emailQueueRepo.RetryFailedBySource(
+		ctx,
+		request.WorkspaceID,
+		domain.EmailQueueSourceBroadcast,
+		request.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	s.logger.WithFields(map[string]interface{}{
+		"broadcast_id":  request.ID,
+		"workspace_id":  request.WorkspaceID,
+		"retried_count": retried,
+	}).Info("Retried failed broadcast recipients")
+
+	return retried, nil
+}
+
 // CancelBroadcast cancels a scheduled broadcast
 func (s *BroadcastService) CancelBroadcast(ctx context.Context, request *domain.CancelBroadcastRequest) error {
 	// Authenticate user for workspace

@@ -93,6 +93,21 @@ func (mr *MockBroadcastServiceMockRecorder) GetBroadcast(arg0, arg1, arg2 interf
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBroadcast", reflect.TypeOf((*MockBroadcastService)(nil).GetBroadcast), arg0, arg1, arg2)
 }
 
+// GetBroadcastDeliveryStatus mocks base method.
+func (m *MockBroadcastService) GetBroadcastDeliveryStatus(arg0 context.Context, arg1, arg2 string) (*domain.EmailQueueSourceStats, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBroadcastDeliveryStatus", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*domain.EmailQueueSourceStats)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetBroadcastDeliveryStatus indicates an expected call of GetBroadcastDeliveryStatus.
+func (mr *MockBroadcastServiceMockRecorder) GetBroadcastDeliveryStatus(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBroadcastDeliveryStatus", reflect.TypeOf((*MockBroadcastService)(nil).GetBroadcastDeliveryStatus), arg0, arg1, arg2)
+}
+
 // GetTestResults mocks base method.
 func (m *MockBroadcastService) GetTestResults(arg0 context.Context, arg1, arg2 string) (*domain.TestResultsResponse, error) {
 	m.ctrl.T.Helper()
@@ -164,6 +179,21 @@ func (m *MockBroadcastService) ResumeBroadcast(arg0 context.Context, arg1 *domai
 func (mr *MockBroadcastServiceMockRecorder) ResumeBroadcast(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeBroadcast", reflect.TypeOf((*MockBroadcastService)(nil).ResumeBroadcast), arg0, arg1)
+}
+
+// RetryFailedBroadcast mocks base method.
+func (m *MockBroadcastService) RetryFailedBroadcast(arg0 context.Context, arg1 *domain.RetryFailedBroadcastRequest) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RetryFailedBroadcast", arg0, arg1)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RetryFailedBroadcast indicates an expected call of RetryFailedBroadcast.
+func (mr *MockBroadcastServiceMockRecorder) RetryFailedBroadcast(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryFailedBroadcast", reflect.TypeOf((*MockBroadcastService)(nil).RetryFailedBroadcast), arg0, arg1)
 }
 
 // ScheduleBroadcast mocks base method.

@@ -53,6 +53,8 @@ func (h *BroadcastHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/broadcasts.schedule", restrictedInDemo(requireAuth(http.HandlerFunc(h.HandleSchedule))))
 	mux.Handle("/api/broadcasts.pause", requireAuth(http.HandlerFunc(h.HandlePause)))
 	mux.Handle("/api/broadcasts.resume", requireAuth(http.HandlerFunc(h.HandleResume)))
+	mux.Handle("/api/broadcasts.getDeliveryStatus", requireAuth(http.HandlerFunc(h.HandleGetDeliveryStatus)))
+	mux.Handle("/api/broadcasts.retryFailed", restrictedInDemo(requireAuth(http.HandlerFunc(h.HandleRetryFailed))))
 	mux.Handle("/api/broadcasts.cancel", requireAuth(http.HandlerFunc(h.HandleCancel)))
 	mux.Handle("/api/broadcasts.sendToIndividual", requireAuth(http.HandlerFunc(h.HandleSendToIndividual)))
 	mux.Handle("/api/broadcasts.delete", requireAuth(http.HandlerFunc(h.HandleDelete)))
@@ -363,6 +365,74 @@ func (h *BroadcastHandler) HandleResume(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
+	})
+}
+
+// HandleGetDeliveryStatus returns queue state for a broadcast, including the
+// number of recipients whose automatic retries are exhausted.
+func (h *BroadcastHandler) HandleGetDeliveryStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req domain.GetBroadcastRequest
+	if err := req.FromURLParams(r.URL.Query()); err != nil {
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	status, err := h.service.GetBroadcastDeliveryStatus(r.Context(), req.WorkspaceID, req.ID)
+	if err != nil {
+		if writePermissionError(w, err) {
+			return
+		}
+		if _, ok := err.(*domain.ErrBroadcastNotFound); ok {
+			WriteJSONError(w, "Broadcast not found", http.StatusNotFound)
+			return
+		}
+		h.logger.WithField("error", err.Error()).Error("Failed to get broadcast delivery status")
+		WriteJSONError(w, "Failed to get broadcast delivery status", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"delivery": status})
+}
+
+// HandleRetryFailed requeues only exhausted recipients of a processed broadcast.
+func (h *BroadcastHandler) HandleRetryFailed(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req domain.RetryFailedBroadcastRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := req.Validate(); err != nil {
+		WriteJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	retried, err := h.service.RetryFailedBroadcast(r.Context(), &req)
+	if err != nil {
+		if writePermissionError(w, err) {
+			return
+		}
+		if _, ok := err.(*domain.ErrBroadcastNotFound); ok {
+			WriteJSONError(w, "Broadcast not found", http.StatusNotFound)
+			return
+		}
+		h.logger.WithField("error", err.Error()).Error("Failed to retry broadcast recipients")
+		WriteJSONError(w, "Failed to retry broadcast recipients", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":       true,
+		"retried_count": retried,
 	})
 }
 

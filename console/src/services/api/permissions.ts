@@ -503,6 +503,10 @@ export const PERMISSION_DESCRIPTORS: Record<
           action: msg`Read A/B test results for a broadcast`,
         },
         {
+          endpoint: "/api/broadcasts.getDeliveryStatus",
+          action: msg`Read queued, retrying, and exhausted recipient counts for a broadcast`,
+        },
+        {
           endpoint: "/api/analytics.query",
           action: msg`Run aggregate queries over the \`broadcasts\` schema`,
         },
@@ -543,6 +547,10 @@ export const PERMISSION_DESCRIPTORS: Record<
           action: msg`Resume a paused broadcast, continuing the send`,
         },
         {
+          endpoint: "/api/broadcasts.retryFailed",
+          action: msg`Retry only recipients whose automatic delivery attempts were exhausted`,
+        },
+        {
           endpoint: "/api/broadcasts.cancel",
           action: msg`Cancel a broadcast`,
         },
@@ -577,7 +585,7 @@ export const PERMISSION_DESCRIPTORS: Record<
         { endpoint: "/api/tasks.delete", action: msg`Delete a send task` },
       ],
     },
-    caveat: msg`Broadcasts write sends. The same switch that lets someone draft a campaign lets them push it to the entire audience — through /api/broadcasts.schedule, and again through /api/tasks.trigger and /api/tasks.reset on the underlying send task. Note that Broadcasts read does NOT give delivery statistics: open/click/bounce numbers come from /api/messages.broadcastStats and siblings, which are gated on Message History read. It also does not grant the recipient list — that is Contacts read.`,
+    caveat: msg`Broadcasts write sends. The same switch that lets someone draft a campaign lets them push it to the entire audience — through /api/broadcasts.schedule, /api/broadcasts.retryFailed, and again through /api/tasks.trigger and /api/tasks.reset on the underlying send task. Note that Broadcasts read does NOT give engagement statistics: open/click/bounce numbers come from /api/messages.broadcastStats and siblings, which are gated on Message History read. It also does not grant the recipient list — that is Contacts read.`,
   },
 
   transactional: {

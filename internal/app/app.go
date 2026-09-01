@@ -824,6 +824,9 @@ func (a *App) InitServices() error {
 	if a.config.Broadcast.DefaultRateLimit > 0 {
 		broadcastConfig.DefaultRateLimit = a.config.Broadcast.DefaultRateLimit
 	}
+	if a.config.Broadcast.EmailQueueMaxAttempts > 0 {
+		broadcastConfig.MaxRetries = a.config.Broadcast.EmailQueueMaxAttempts
+	}
 	broadcastFactory := broadcast.NewFactory(
 		a.broadcastRepo,
 		a.messageHistoryRepo,
@@ -1111,12 +1114,19 @@ func (a *App) InitServices() error {
 
 	// Initialize email queue worker for processing marketing emails (broadcasts & automations)
 	// Worker creates message_history entries via UPSERT after each send attempt
+	emailQueueConfig := queue.DefaultWorkerConfig()
+	if a.config.Broadcast.EmailQueueMaxAttempts > 0 {
+		emailQueueConfig.MaxRetries = a.config.Broadcast.EmailQueueMaxAttempts
+	}
+	if a.config.Broadcast.EmailQueueRetryBase > 0 {
+		emailQueueConfig.RetryBase = a.config.Broadcast.EmailQueueRetryBase
+	}
 	a.emailQueueWorker = queue.NewEmailQueueWorker(
 		a.emailQueueRepo,
 		a.workspaceRepo,
 		a.emailService,
 		a.messageHistoryRepo,
-		queue.DefaultWorkerConfig(),
+		emailQueueConfig,
 		a.logger,
 	)
 	// Enable the stop-on-reply just-in-time guard for automation sends.

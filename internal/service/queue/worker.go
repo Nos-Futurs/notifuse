@@ -17,6 +17,7 @@ type EmailQueueWorkerConfig struct {
 	PollInterval time.Duration // How often to poll for new work (default: 1s)
 	BatchSize    int           // How many emails to fetch per poll (default: 50)
 	MaxRetries   int           // Max retry attempts before permanent failure (default: 3)
+	RetryBase    time.Duration // Base duration for exponential retry backoff (default: 1 minute)
 
 	// Circuit breaker settings
 	CircuitBreakerThreshold int           // Provider errors before opening circuit (default: 5)
@@ -30,6 +31,7 @@ func DefaultWorkerConfig() *EmailQueueWorkerConfig {
 		PollInterval:            1 * time.Second,
 		BatchSize:               50,
 		MaxRetries:              3,
+		RetryBase:               time.Minute,
 		CircuitBreakerThreshold: 5,
 		CircuitBreakerCooldown:  getCircuitBreakerCooldown(),
 	}
@@ -441,7 +443,7 @@ func (w *EmailQueueWorker) processEntry(workspace *domain.Workspace, entry *doma
 	}
 }
 
-// handleError handles a send error, scheduling retry or deleting permanently failed entries
+// handleError handles a send error, scheduling retry or retaining permanently failed entries
 // classifiedErr may be nil for internal errors (e.g., integration not found)
 func (w *EmailQueueWorker) handleError(workspace *domain.Workspace, entry *domain.EmailQueueEntry, sendErr error, classifiedErr *emailerror.ClassifiedError) {
 	entry.Attempts++ // Increment since MarkAsProcessing already did this
@@ -470,19 +472,20 @@ func (w *EmailQueueWorker) handleError(workspace *domain.Workspace, entry *domai
 	w.upsertMessageHistory(w.ctx, workspace.ID, workspace.Settings.SecretKey, entry, "", sendErr)
 
 	if isPermanent {
-		// Permanent failure - delete the queue entry
-		// Message history already tracks this permanent failure via upsertMessageHistory above
+		// Keep the failed queue entry after automatic retries are exhausted. Besides
+		// making the failure observable, retaining the serialized payload allows an
+		// operator to retry exactly these recipients without rebuilding the broadcast.
 		w.logger.WithFields(map[string]interface{}{
 			"entry_id":   entry.ID,
 			"message_id": entry.MessageID,
 			"attempts":   entry.Attempts,
 		}).Warn("Email permanently failed")
 
-		if err := w.queueRepo.Delete(w.ctx, workspace.ID, entry.ID); err != nil {
+		if err := w.queueRepo.MarkAsFailed(w.ctx, workspace.ID, entry.ID, sendErr.Error(), nil); err != nil {
 			w.logger.WithFields(map[string]interface{}{
 				"entry_id": entry.ID,
 				"error":    err.Error(),
-			}).Error("Failed to delete permanently failed queue entry")
+			}).Error("Failed to retain permanently failed queue entry")
 		}
 
 		// Call failure callback (isPermanent = true)
@@ -493,7 +496,7 @@ func (w *EmailQueueWorker) handleError(workspace *domain.Workspace, entry *domai
 	}
 
 	// Schedule retry with exponential backoff
-	nextRetry := domain.CalculateNextRetryTime(entry.Attempts)
+	nextRetry := domain.CalculateNextRetryTimeWithBase(entry.Attempts, w.config.RetryBase)
 	if err := w.queueRepo.MarkAsFailed(w.ctx, workspace.ID, entry.ID, sendErr.Error(), &nextRetry); err != nil {
 		w.logger.WithFields(map[string]interface{}{
 			"entry_id": entry.ID,

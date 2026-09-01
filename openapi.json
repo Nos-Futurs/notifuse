@@ -2296,6 +2296,174 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing authentication token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Broadcast not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/broadcasts.getDeliveryStatus": {
+      "get": {
+        "summary": "Get broadcast delivery status",
+        "description": "Returns active retry and exhausted-recipient counts after a broadcast has been enqueued.",
+        "operationId": "getBroadcastDeliveryStatus",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the workspace",
+            "example": "ws_1234567890"
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The ID of the broadcast",
+            "example": "broadcast_12345"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Delivery status retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "delivery"
+                  ],
+                  "properties": {
+                    "delivery": {
+                      "$ref": "#/components/schemas/BroadcastDeliveryStatus"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing authentication token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Broadcast not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/broadcasts.retryFailed": {
+      "post": {
+        "summary": "Retry failed broadcast recipients",
+        "description": "Requeues only recipients whose automatic delivery attempts are exhausted. This endpoint is restricted in demo mode.",
+        "operationId": "retryFailedBroadcastRecipients",
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryFailedBroadcastRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exhausted recipients requeued successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryFailedBroadcastResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - validation failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 },
                 "examples": {
                   "missingDateTime": {
@@ -6580,6 +6748,88 @@
             "type": "string",
             "description": "ID of the broadcast to resume",
             "example": "broadcast_12345"
+          }
+        }
+      },
+      "RetryFailedBroadcastRequest": {
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "id"
+        ],
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "The ID of the workspace",
+            "example": "ws_1234567890"
+          },
+          "id": {
+            "type": "string",
+            "description": "ID of the processed broadcast whose exhausted recipients should be retried",
+            "example": "broadcast_12345"
+          }
+        }
+      },
+      "RetryFailedBroadcastResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "retried_count"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "retried_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of exhausted recipients requeued",
+            "example": 23
+          }
+        }
+      },
+      "BroadcastDeliveryStatus": {
+        "type": "object",
+        "required": [
+          "pending",
+          "processing",
+          "retrying",
+          "exhausted",
+          "paused"
+        ],
+        "properties": {
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "example": 0
+          },
+          "processing": {
+            "type": "integer",
+            "format": "int64",
+            "example": 0
+          },
+          "retrying": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Recipients still scheduled for automatic retry",
+            "example": 0
+          },
+          "exhausted": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Recipients that exhausted automatic delivery attempts",
+            "example": 23
+          },
+          "paused": {
+            "type": "integer",
+            "format": "int64",
+            "example": 0
+          },
+          "latest_error": {
+            "type": "string",
+            "description": "Full provider error from the most recently exhausted recipient",
+            "example": "message rejected with code: 452 daily sending quota reached"
           }
         }
       },

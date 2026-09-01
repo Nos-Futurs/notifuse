@@ -253,6 +253,62 @@ func TestBroadcastService_ResumeBroadcast_ToScheduled_Success(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestBroadcastService_GetBroadcastDeliveryStatus(t *testing.T) {
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	authOK(d.authService, ctx, "w1")
+	d.repo.EXPECT().GetBroadcast(ctx, "w1", "b1").Return(testBroadcast("w1", "b1"), nil)
+	expected := &domain.EmailQueueSourceStats{
+		Retrying:  2,
+		Exhausted: 23,
+	}
+	d.emailQueueRepo.EXPECT().GetSourceStats(ctx, "w1", domain.EmailQueueSourceBroadcast, "b1").Return(expected, nil)
+
+	status, err := d.svc.GetBroadcastDeliveryStatus(ctx, "w1", "b1")
+	require.NoError(t, err)
+	assert.Equal(t, expected, status)
+}
+
+func TestBroadcastService_RetryFailedBroadcast(t *testing.T) {
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	req := &domain.RetryFailedBroadcastRequest{WorkspaceID: "w1", ID: "b1"}
+	authOK(d.authService, ctx, req.WorkspaceID)
+	broadcast := testBroadcast(req.WorkspaceID, req.ID)
+	broadcast.Status = domain.BroadcastStatusProcessed
+	d.repo.EXPECT().GetBroadcast(ctx, req.WorkspaceID, req.ID).Return(broadcast, nil)
+	d.emailQueueRepo.EXPECT().RetryFailedBySource(
+		ctx,
+		req.WorkspaceID,
+		domain.EmailQueueSourceBroadcast,
+		req.ID,
+	).Return(int64(23), nil)
+
+	retried, err := d.svc.RetryFailedBroadcast(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, int64(23), retried)
+}
+
+func TestBroadcastService_RetryFailedBroadcast_RejectsActiveBroadcast(t *testing.T) {
+	d := setupBroadcastSvc(t)
+	defer d.ctrl.Finish()
+
+	ctx := context.Background()
+	req := &domain.RetryFailedBroadcastRequest{WorkspaceID: "w1", ID: "b1"}
+	authOK(d.authService, ctx, req.WorkspaceID)
+	broadcast := testBroadcast(req.WorkspaceID, req.ID)
+	broadcast.Status = domain.BroadcastStatusProcessing
+	d.repo.EXPECT().GetBroadcast(ctx, req.WorkspaceID, req.ID).Return(broadcast, nil)
+
+	retried, err := d.svc.RetryFailedBroadcast(ctx, req)
+	assert.Zero(t, retried)
+	assert.ErrorContains(t, err, "only processed broadcasts")
+}
+
 func TestBroadcastService_SendToIndividual_Success(t *testing.T) {
 	d := setupBroadcastSvc(t)
 	defer d.ctrl.Finish()

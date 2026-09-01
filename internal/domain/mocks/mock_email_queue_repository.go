@@ -169,6 +169,21 @@ func (mr *MockEmailQueueRepositoryMockRecorder) GetBySourceID(arg0, arg1, arg2, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBySourceID", reflect.TypeOf((*MockEmailQueueRepository)(nil).GetBySourceID), arg0, arg1, arg2, arg3)
 }
 
+// GetSourceStats mocks base method.
+func (m *MockEmailQueueRepository) GetSourceStats(arg0 context.Context, arg1 string, arg2 domain.EmailQueueSourceType, arg3 string) (*domain.EmailQueueSourceStats, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSourceStats", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(*domain.EmailQueueSourceStats)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSourceStats indicates an expected call of GetSourceStats.
+func (mr *MockEmailQueueRepositoryMockRecorder) GetSourceStats(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSourceStats", reflect.TypeOf((*MockEmailQueueRepository)(nil).GetSourceStats), arg0, arg1, arg2, arg3)
+}
+
 // GetStats mocks base method.
 func (m *MockEmailQueueRepository) GetStats(arg0 context.Context, arg1 string) (*domain.EmailQueueStats, error) {
 	m.ctrl.T.Helper()
@@ -284,6 +299,21 @@ func (m *MockEmailQueueRepository) ResumeBySourceTx(arg0 context.Context, arg1 *
 func (mr *MockEmailQueueRepositoryMockRecorder) ResumeBySourceTx(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeBySourceTx", reflect.TypeOf((*MockEmailQueueRepository)(nil).ResumeBySourceTx), arg0, arg1, arg2, arg3)
+}
+
+// RetryFailedBySource mocks base method.
+func (m *MockEmailQueueRepository) RetryFailedBySource(arg0 context.Context, arg1 string, arg2 domain.EmailQueueSourceType, arg3 string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RetryFailedBySource", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RetryFailedBySource indicates an expected call of RetryFailedBySource.
+func (mr *MockEmailQueueRepositoryMockRecorder) RetryFailedBySource(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryFailedBySource", reflect.TypeOf((*MockEmailQueueRepository)(nil).RetryFailedBySource), arg0, arg1, arg2, arg3)
 }
 
 // SetNextRetry mocks base method.

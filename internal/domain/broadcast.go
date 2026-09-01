@@ -741,6 +741,23 @@ func (r *ResumeBroadcastRequest) Validate() error {
 	return nil
 }
 
+// RetryFailedBroadcastRequest identifies a processed broadcast whose exhausted
+// queue entries should be retried without resending successful recipients.
+type RetryFailedBroadcastRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
+}
+
+func (r *RetryFailedBroadcastRequest) Validate() error {
+	if r.WorkspaceID == "" {
+		return fmt.Errorf("workspace_id is required")
+	}
+	if r.ID == "" {
+		return fmt.Errorf("broadcast id is required")
+	}
+	return nil
+}
+
 // CancelBroadcastRequest defines the request to cancel a scheduled broadcast
 type CancelBroadcastRequest struct {
 	WorkspaceID string `json:"workspace_id"`
@@ -1163,6 +1180,12 @@ type BroadcastService interface {
 
 	// ResumeBroadcast resumes a paused broadcast
 	ResumeBroadcast(ctx context.Context, request *ResumeBroadcastRequest) error
+
+	// GetBroadcastDeliveryStatus reports queued, retrying, and exhausted recipients.
+	GetBroadcastDeliveryStatus(ctx context.Context, workspaceID, id string) (*EmailQueueSourceStats, error)
+
+	// RetryFailedBroadcast retries only exhausted recipients of a processed broadcast.
+	RetryFailedBroadcast(ctx context.Context, request *RetryFailedBroadcastRequest) (int64, error)
 
 	// CancelBroadcast cancels a scheduled broadcast
 	CancelBroadcast(ctx context.Context, request *CancelBroadcastRequest) error

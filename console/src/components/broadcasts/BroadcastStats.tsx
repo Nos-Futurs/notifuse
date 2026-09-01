@@ -12,6 +12,7 @@ import {
 } from '@fortawesome/free-regular-svg-icons'
 import { faArrowPointer, faTriangleExclamation, faBan } from '@fortawesome/free-solid-svg-icons'
 import { getBroadcastStats } from '../../services/api/messages_history'
+import { broadcastApi } from '../../services/api/broadcast'
 import { useNavigate } from '@tanstack/react-router'
 import type { Workspace } from '../../services/api/types'
 
@@ -21,6 +22,8 @@ export interface ProgressStats {
   enqueuedCount: number
   sentCount: number
   failedCount: number
+  retryingCount: number
+  latestError?: string
 }
 
 interface BroadcastStatsProps {
@@ -53,6 +56,15 @@ export function BroadcastStats({
       broadcastStatus === 'cancelled' || broadcastStatus === 'failed' ? false : 5000
   })
 
+  const { data: deliveryData } = useQuery({
+    queryKey: ['broadcast-delivery-status', workspaceId, broadcastId],
+    queryFn: () =>
+      broadcastApi.getDeliveryStatus({ workspace_id: workspaceId, id: broadcastId }),
+    enabled: broadcastStatus !== 'draft' && broadcastStatus !== 'scheduled',
+    refetchInterval:
+      broadcastStatus === 'cancelled' || broadcastStatus === 'failed' ? false : 5000
+  })
+
   const stats = data?.stats || {
     total_sent: 0,
     total_delivered: 0,
@@ -64,8 +76,13 @@ export function BroadcastStats({
     total_unsubscribed: 0
   }
 
-  // Calculate remaining
-  const processed = stats.total_sent + stats.total_failed
+  const delivery = deliveryData?.delivery
+  // A failed attempt has a sent_at row too, so total_failed is a subset of
+  // total_sent. Only exhausted failures are terminal; automatic retries still
+  // count as remaining delivery work.
+  const successful = Math.max(0, stats.total_sent - stats.total_failed)
+  const exhausted = delivery?.exhausted || 0
+  const processed = successful + exhausted
   const remaining = enqueuedCount ? Math.max(0, enqueuedCount - processed) : 0
 
   // Notify parent of stats changes using a ref to avoid re-renders
@@ -80,11 +97,21 @@ export function BroadcastStats({
         remaining,
         processed,
         enqueuedCount,
-        sentCount: stats.total_sent,
-        failedCount: stats.total_failed
+        sentCount: successful,
+        failedCount: exhausted,
+        retryingCount: delivery?.retrying || 0,
+        latestError: delivery?.latest_error
       })
     }
-  }, [remaining, processed, enqueuedCount, stats.total_sent, stats.total_failed])
+  }, [
+    remaining,
+    processed,
+    enqueuedCount,
+    successful,
+    exhausted,
+    delivery?.retrying,
+    delivery?.latest_error
+  ])
 
   // Check if marketing provider is SMTP
   const isSmtpProvider = (() => {
@@ -127,7 +154,7 @@ export function BroadcastStats({
   return (
     <Row gutter={[16, 16]} wrap className="flex-nowrap overflow-x-auto">
       <Col span={3}>
-        <Tooltip title={t`${stats.total_sent} total emails sent - Click to view details`}>
+        <Tooltip title={t`${successful} total emails sent - Click to view details`}>
           <div
             className="cursor-pointer hover:bg-gray-50 p-2 rounded transition-colors"
             onClick={() => navigateToLogs('sent')}
@@ -143,7 +170,7 @@ export function BroadcastStats({
                   {t`Sent`}
                 </Space>
               }
-              value={stats.total_sent}
+              value={successful}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />
@@ -177,7 +204,7 @@ export function BroadcastStats({
                   {t`Delivered`}
                 </Space>
               }
-              value={isSmtpProvider ? '-' : getRate(stats.total_delivered, stats.total_sent)}
+              value={isSmtpProvider ? '-' : getRate(stats.total_delivered, successful)}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />
@@ -201,7 +228,7 @@ export function BroadcastStats({
                   {t`Opens`}
                 </Space>
               }
-              value={getRate(stats.total_opened, stats.total_sent)}
+              value={getRate(stats.total_opened, successful)}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />
@@ -225,7 +252,7 @@ export function BroadcastStats({
                   {t`Clicks`}
                 </Space>
               }
-              value={getRate(stats.total_clicked, stats.total_sent)}
+              value={getRate(stats.total_clicked, successful)}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />
@@ -249,7 +276,7 @@ export function BroadcastStats({
                   {t`Failed`}
                 </Space>
               }
-              value={getRate(stats.total_failed, stats.total_sent)}
+              value={getRate(stats.total_failed, enqueuedCount || stats.total_sent)}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />
@@ -283,7 +310,7 @@ export function BroadcastStats({
                   {t`Bounced`}
                 </Space>
               }
-              value={isSmtpProvider ? '-' : getRate(stats.total_bounced, stats.total_sent)}
+              value={isSmtpProvider ? '-' : getRate(stats.total_bounced, successful)}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />
@@ -317,7 +344,7 @@ export function BroadcastStats({
                   {t`Complaints`}
                 </Space>
               }
-              value={isSmtpProvider ? '-' : getRate(stats.total_complained, stats.total_sent)}
+              value={isSmtpProvider ? '-' : getRate(stats.total_complained, successful)}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />
@@ -341,7 +368,7 @@ export function BroadcastStats({
                   {t`Unsub.`}
                 </Space>
               }
-              value={getRate(stats.total_unsubscribed, stats.total_sent)}
+              value={getRate(stats.total_unsubscribed, successful)}
               styles={{ content: { fontSize: '16px' } }}
               formatter={formatStat}
             />

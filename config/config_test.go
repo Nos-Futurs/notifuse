@@ -110,6 +110,22 @@ func TestLoad_DataFeedSSRFProtectionDefault(t *testing.T) {
 	})
 }
 
+func TestLoad_EmailQueueRetryConfiguration(t *testing.T) {
+	_ = os.Setenv("SECRET_KEY", "test-secret-key-1234567890123456")
+	_ = os.Setenv("EMAIL_QUEUE_MAX_ATTEMPTS", "7")
+	_ = os.Setenv("EMAIL_QUEUE_RETRY_BASE", "15m")
+	defer func() {
+		_ = os.Unsetenv("SECRET_KEY")
+		_ = os.Unsetenv("EMAIL_QUEUE_MAX_ATTEMPTS")
+		_ = os.Unsetenv("EMAIL_QUEUE_RETRY_BASE")
+	}()
+
+	cfg, err := LoadWithOptions(LoadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 7, cfg.Broadcast.EmailQueueMaxAttempts)
+	assert.Equal(t, 15*time.Minute, cfg.Broadcast.EmailQueueRetryBase)
+}
+
 func TestInvalidKeysHandling(t *testing.T) {
 	t.Run("missing_secret_key", func(t *testing.T) {
 		// Clear any existing environment variables
