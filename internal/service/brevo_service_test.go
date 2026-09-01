@@ -94,6 +94,41 @@ func TestBrevoServiceRegisterWebhooks(t *testing.T) {
 	assert.Equal(t, "42", status.Endpoints[0].WebhookID)
 }
 
+func TestBrevoServiceRegisterWebhooksTreatsDocumentNotFoundAsEmptyList(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	httpClient := mocks.NewMockHTTPClient(ctrl)
+	log := pkgmocks.NewMockLogger(ctrl)
+	svc := service.NewBrevoService(httpClient, log)
+	provider := &domain.EmailProvider{Kind: domain.EmailProviderKindBrevo, Brevo: &domain.BrevoSettings{APIKey: "xkeysib-test"}}
+
+	gomock.InOrder(
+		httpClient.EXPECT().Do(gomock.Any()).DoAndReturn(func(req *http.Request) (*http.Response, error) {
+			assert.Equal(t, http.MethodGet, req.Method)
+			return brevoResponse(http.StatusBadRequest, `{"code":"document_not_found","message":"Webhook record does not exist"}`), nil
+		}),
+		httpClient.EXPECT().Do(gomock.Any()).DoAndReturn(func(req *http.Request) (*http.Response, error) {
+			assert.Equal(t, http.MethodPost, req.Method)
+			return brevoResponse(http.StatusCreated, `{"id":43}`), nil
+		}),
+	)
+
+	status, err := svc.RegisterWebhooks(
+		context.Background(),
+		"workspace",
+		"integration",
+		"https://notifuse.example",
+		[]domain.EmailEventType{
+			domain.EmailEventDelivered,
+			domain.EmailEventBounce,
+			domain.EmailEventComplaint,
+		},
+		provider,
+	)
+	require.NoError(t, err)
+	assert.True(t, status.IsRegistered)
+	assert.Equal(t, "43", status.Endpoints[0].WebhookID)
+}
+
 func TestBrevoServicePreservesAPIErrorBody(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	httpClient := mocks.NewMockHTTPClient(ctrl)

@@ -65,6 +65,21 @@ func (s *BrevoService) listWebhooks(ctx context.Context, config domain.BrevoSett
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
+		// Fresh Brevo accounts can return document_not_found instead of an empty
+		// collection until their first webhook exists. Treat that response as the
+		// empty state so RegisterWebhooks can create the initial webhook.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		if resp.StatusCode == http.StatusBadRequest {
+			var apiError struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(body, &apiError) == nil && apiError.Code == "document_not_found" {
+				return []domain.BrevoWebhook{}, nil
+			}
+		}
+		if len(body) > 0 {
+			return nil, fmt.Errorf("Brevo API returned status code %d: %s", resp.StatusCode, string(body))
+		}
 		return nil, brevoAPIError(resp)
 	}
 	var result domain.BrevoWebhookListResponse
