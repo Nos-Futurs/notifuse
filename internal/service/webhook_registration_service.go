@@ -28,6 +28,7 @@ func NewWebhookRegistrationService(
 	sparkPostService domain.SparkPostServiceInterface,
 	sesService domain.SESServiceInterface,
 	sendGridService domain.SendGridServiceInterface,
+	brevoService domain.WebhookProvider,
 	logger logger.Logger,
 	apiEndpoint string,
 ) *WebhookRegistrationService {
@@ -63,6 +64,10 @@ func NewWebhookRegistrationService(
 
 	if provider, ok := sendGridService.(domain.WebhookProvider); ok {
 		svc.webhookProviders[domain.EmailProviderKindSendGrid] = provider
+	}
+
+	if brevoService != nil {
+		svc.webhookProviders[domain.EmailProviderKindBrevo] = brevoService
 	}
 
 	return svc

@@ -303,6 +303,8 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 		events, err = s.processSMTPWebhook(integration.ID, rawPayload)
 	case domain.EmailProviderKindSendGrid:
 		events, err = s.processSendGridWebhook(integration.ID, rawPayload)
+	case domain.EmailProviderKindBrevo:
+		events, err = s.processBrevoWebhook(integration.ID, rawPayload)
 	default:
 		// codecov:ignore:start
 		tracing.MarkSpanError(ctx, fmt.Errorf("unsupported email provider kind: %s", integration.EmailProvider.Kind))
@@ -1288,6 +1290,93 @@ func (s *InboundWebhookEventService) processSendGridWebhook(integrationID string
 	}
 
 	return events, nil
+}
+
+// processBrevoWebhook processes transactional email events from Brevo. Brevo normally
+// posts one JSON object per request; array payloads are accepted as well so enabling
+// batching provider-side does not break ingestion.
+func (s *InboundWebhookEventService) processBrevoWebhook(integrationID string, rawPayload []byte) ([]*domain.InboundWebhookEvent, error) {
+	var payloads []domain.BrevoWebhookEvent
+	if err := json.Unmarshal(rawPayload, &payloads); err != nil {
+		var payload domain.BrevoWebhookEvent
+		if err := json.Unmarshal(rawPayload, &payload); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Brevo webhook payload: %w", err)
+		}
+		payloads = []domain.BrevoWebhookEvent{payload}
+	}
+
+	events := make([]*domain.InboundWebhookEvent, 0, len(payloads))
+	for _, payload := range payloads {
+		var eventType domain.EmailEventType
+		var bounceType, bounceCategory, complaintType string
+		switch payload.Event {
+		case "delivered":
+			eventType = domain.EmailEventDelivered
+		case "hard_bounce":
+			eventType = domain.EmailEventBounce
+			bounceType, bounceCategory = "hard_bounce", "Permanent"
+		case "soft_bounce":
+			eventType = domain.EmailEventBounce
+			bounceType, bounceCategory = "soft_bounce", "Temporary"
+		case "blocked":
+			eventType = domain.EmailEventBounce
+			bounceType, bounceCategory = "blocked", "Blocked"
+		case "invalid":
+			eventType = domain.EmailEventBounce
+			bounceType, bounceCategory = "invalid", "Invalid address"
+		case "spam":
+			eventType, complaintType = domain.EmailEventComplaint, "spam"
+		case "unsubscribed":
+			eventType, complaintType = domain.EmailEventComplaint, "unsubscribe"
+		default:
+			// request, deferred, opened and click events are not message terminal states.
+			continue
+		}
+
+		timestampValue := payload.EventTime
+		if timestampValue == 0 {
+			timestampValue = payload.Timestamp
+		}
+		if timestampValue == 0 {
+			timestampValue = payload.Epoch
+		}
+		if timestampValue > 1_000_000_000_000 {
+			timestampValue /= 1000
+		}
+		timestamp := time.Now().UTC()
+		if timestampValue > 0 {
+			timestamp = time.Unix(timestampValue, 0).UTC()
+		}
+
+		messageID := payload.MessageID
+		if notifuseID := brevoNotifuseMessageID(payload.XMailinCustom); notifuseID != "" {
+			messageID = notifuseID
+		}
+		event := domain.NewInboundWebhookEvent(
+			uuid.New().String(), eventType, domain.WebhookSourceBrevo, integrationID,
+			payload.Email, &messageID, timestamp, string(rawPayload),
+		)
+		if eventType == domain.EmailEventBounce {
+			event.BounceType = bounceType
+			event.BounceCategory = bounceCategory
+			event.BounceDiagnostic = payload.Reason
+		}
+		if eventType == domain.EmailEventComplaint {
+			event.ComplaintFeedbackType = complaintType
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
+func brevoNotifuseMessageID(custom string) string {
+	for _, field := range strings.Split(custom, "|") {
+		parts := strings.SplitN(strings.TrimSpace(field), ":", 2)
+		if len(parts) == 2 && strings.EqualFold(strings.TrimSpace(parts[0]), "notifuse_message_id") {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+	return ""
 }
 
 // ListEvents retrieves all webhook events for a workspace

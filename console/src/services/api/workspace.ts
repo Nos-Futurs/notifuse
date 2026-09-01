@@ -67,7 +67,7 @@ export interface FileManagerSettings {
   force_path_style?: boolean
 }
 
-export type EmailProviderKind = 'smtp' | 'ses' | 'sparkpost' | 'postmark' | 'mailgun' | 'mailjet' | 'sendgrid'
+export type EmailProviderKind = 'smtp' | 'ses' | 'sparkpost' | 'postmark' | 'mailgun' | 'mailjet' | 'sendgrid' | 'brevo'
 
 export interface Sender {
   id: string
@@ -85,6 +85,7 @@ export interface EmailProvider {
   mailgun?: MailgunSettings
   mailjet?: MailjetSettings
   sendgrid?: SendGridSettings
+  brevo?: BrevoSettings
   senders: Sender[]
   rate_limit_per_minute: number
 }
@@ -167,6 +168,11 @@ export interface MailjetSettings {
 }
 
 export interface SendGridSettings {
+  api_key?: string
+  encrypted_api_key?: string
+}
+
+export interface BrevoSettings {
   api_key?: string
   encrypted_api_key?: string
 }

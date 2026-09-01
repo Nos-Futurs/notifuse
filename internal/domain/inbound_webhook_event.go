@@ -83,6 +83,9 @@ const (
 
 	// WebhookSourceSendGrid indicates webhook from SendGrid
 	WebhookSourceSendGrid WebhookSource = "sendgrid"
+
+	// WebhookSourceBrevo indicates webhook from Brevo
+	WebhookSourceBrevo WebhookSource = "brevo"
 )
 
 // InboundWebhookEvent represents an event received from an email provider or integration webhook

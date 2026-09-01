@@ -1830,6 +1830,9 @@ func hydrateEmailProviderCredentials(incoming *domain.EmailProvider, stored *dom
 	if incoming.SendGrid != nil && stored.SendGrid != nil {
 		fill(&incoming.SendGrid.APIKey, stored.SendGrid.APIKey)
 	}
+	if incoming.Brevo != nil && stored.Brevo != nil {
+		fill(&incoming.Brevo.APIKey, stored.Brevo.APIKey)
+	}
 }
 
 // preserveEmailProviderSecrets keeps a stored credential when the caller's payload
@@ -1881,6 +1884,9 @@ func preserveEmailProviderSecrets(updated *domain.Integration, existing *domain.
 	}
 	if u.SendGrid != nil && e.SendGrid != nil {
 		keep(&u.SendGrid.APIKey, &u.SendGrid.EncryptedAPIKey, e.SendGrid.EncryptedAPIKey)
+	}
+	if u.Brevo != nil && e.Brevo != nil {
+		keep(&u.Brevo.APIKey, &u.Brevo.EncryptedAPIKey, e.Brevo.EncryptedAPIKey)
 	}
 }
 

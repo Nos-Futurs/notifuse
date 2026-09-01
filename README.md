@@ -42,7 +42,7 @@ Notifuse is a modern, self-hosted emailing platform that allows you to send news
 - **Transactional API**: Powerful REST API for automated email delivery
 - **Webhook Integration**: Real-time event notifications and integrations
 - **Liquid Templating**: Dynamic content with variables like `{{ contact.first_name }}`
-- **Multi-Provider Support**: Connect with Amazon SES, Mailgun, Postmark, Mailjet, SparkPost, SendGrid, and SMTP
+- **Multi-Provider Support**: Connect with Amazon SES, Brevo, Mailgun, Postmark, Mailjet, SparkPost, SendGrid, and SMTP
 
 ### 📊 Analytics & Insights
 

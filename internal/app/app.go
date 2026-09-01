@@ -181,6 +181,7 @@ type App struct {
 	sesService          *service.SESService
 	sesDiscoveryService *service.SESDiscoveryService
 	sendGridService     *service.SendGridService
+	brevoService        *service.BrevoService
 
 	// Cache
 	blogCache         cache.Cache // Dedicated cache for blog rendering
@@ -685,6 +686,7 @@ func (a *App) InitServices() error {
 	a.sesService = service.NewSESService(a.authService, a.logger)
 	a.sesDiscoveryService = service.NewSESDiscoveryService(a.workspaceRepo, a.authService, a.sesService, a.logger)
 	a.sendGridService = service.NewSendGridService(httpClient, a.authService, a.logger)
+	a.brevoService = service.NewBrevoService(httpClient, a.logger)
 
 	// Initialize email service
 	a.emailService = service.NewEmailService(
@@ -711,6 +713,7 @@ func (a *App) InitServices() error {
 		a.sparkPostService,
 		a.sesService,
 		a.sendGridService,
+		a.brevoService,
 		a.logger,
 		a.config.WebhookEndpoint,
 	)

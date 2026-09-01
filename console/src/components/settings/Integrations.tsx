@@ -491,6 +491,7 @@ interface EmailProviderFormValues {
   mailgun?: EmailProvider['mailgun']
   mailjet?: EmailProvider['mailjet']
   sendgrid?: EmailProvider['sendgrid']
+  brevo?: EmailProvider['brevo']
   senders: Sender[]
   rate_limit_per_minute: number
   type?: IntegrationType
@@ -518,6 +519,8 @@ const constructProviderFromForm = (formValues: EmailProviderFormValues): EmailPr
     provider.mailjet = formValues.mailjet
   } else if (formValues.kind === 'sendgrid' && formValues.sendgrid) {
     provider.sendgrid = formValues.sendgrid
+  } else if (formValues.kind === 'brevo' && formValues.brevo) {
+    provider.brevo = formValues.brevo
   }
 
   return provider
@@ -715,7 +718,8 @@ export function Integrations({ workspace, onSave, loading, isOwner }: Integratio
         : undefined,
       mailgun: integration.email_provider.mailgun,
       mailjet: integration.email_provider.mailjet,
-      sendgrid: integration.email_provider.sendgrid
+      sendgrid: integration.email_provider.sendgrid,
+      brevo: integration.email_provider.brevo
     })
     setProviderDrawerVisible(true)
   }
@@ -2178,6 +2182,12 @@ export function Integrations({ workspace, onSave, loading, isOwner }: Integratio
         {providerType === 'sendgrid' && (
           <Form.Item name={['sendgrid', 'api_key']} label={t`API Key`} rules={[{ required: !editingIntegrationId }]}>
             <Input.Password placeholder={secretPlaceholder('sendgrid.api_key', t`API Key (starts with SG.)`)} disabled={!isOwner} />
+          </Form.Item>
+        )}
+
+        {providerType === 'brevo' && (
+          <Form.Item name={['brevo', 'api_key']} label={t`API Key`} rules={[{ required: !editingIntegrationId }]}>
+            <Input.Password placeholder={secretPlaceholder('brevo.api_key', t`API Key (starts with xkeysib-)`)} disabled={!isOwner} />
           </Form.Item>
         )}
 

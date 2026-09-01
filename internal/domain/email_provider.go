@@ -30,6 +30,7 @@ const (
 	EmailProviderKindMailgun   EmailProviderKind = "mailgun"
 	EmailProviderKindMailjet   EmailProviderKind = "mailjet"
 	EmailProviderKindSendGrid  EmailProviderKind = "sendgrid"
+	EmailProviderKindBrevo     EmailProviderKind = "brevo"
 )
 
 // transactionalOnlyProviderKinds lists provider kinds that may only be used for
@@ -73,6 +74,7 @@ type EmailProvider struct {
 	Mailgun            *MailgunSettings   `json:"mailgun,omitempty"`
 	Mailjet            *MailjetSettings   `json:"mailjet,omitempty"`
 	SendGrid           *SendGridSettings  `json:"sendgrid,omitempty"`
+	Brevo              *BrevoSettings     `json:"brevo,omitempty"`
 	Senders            []EmailSender      `json:"senders"`
 	RateLimitPerMinute int                `json:"rate_limit_per_minute"`
 }
@@ -148,6 +150,11 @@ func (e *EmailProvider) Validate(passphrase string) error {
 			return fmt.Errorf("sendgrid settings required when email provider kind is sendgrid")
 		}
 		return e.SendGrid.Validate(passphrase)
+	case EmailProviderKindBrevo:
+		if e.Brevo == nil {
+			return fmt.Errorf("brevo settings required when email provider kind is brevo")
+		}
+		return e.Brevo.Validate(passphrase)
 	default:
 		return fmt.Errorf("invalid email provider kind: %s", e.Kind)
 	}
@@ -246,6 +253,13 @@ func (e *EmailProvider) EncryptSecretKeys(passphrase string) error {
 		e.SendGrid.APIKey = ""
 	}
 
+	if e.Kind == EmailProviderKindBrevo && e.Brevo != nil && e.Brevo.APIKey != "" {
+		if err := e.Brevo.EncryptAPIKey(passphrase); err != nil {
+			return err
+		}
+		e.Brevo.APIKey = ""
+	}
+
 	return nil
 }
 
@@ -314,6 +328,12 @@ func (e *EmailProvider) DecryptSecretKeys(passphrase string) error {
 
 	if e.Kind == EmailProviderKindSendGrid && e.SendGrid != nil && e.SendGrid.EncryptedAPIKey != "" {
 		if err := e.SendGrid.DecryptAPIKey(passphrase); err != nil {
+			return err
+		}
+	}
+
+	if e.Kind == EmailProviderKindBrevo && e.Brevo != nil && e.Brevo.EncryptedAPIKey != "" {
+		if err := e.Brevo.DecryptAPIKey(passphrase); err != nil {
 			return err
 		}
 	}

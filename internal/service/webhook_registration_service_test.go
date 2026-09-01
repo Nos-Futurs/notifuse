@@ -787,6 +787,7 @@ func TestNewWebhookRegistrationService(t *testing.T) {
 		mockSparkPostService,
 		mockSESService,
 		mockSendGridService,
+		nil,
 		mockLogger,
 		apiEndpoint,
 	)

@@ -32,6 +32,7 @@ export type {
   MailgunSettings,
   MailjetSettings,
   SendGridSettings,
+  BrevoSettings,
   LLMProviderKind,
   LLMProvider,
   OpenAISettings,

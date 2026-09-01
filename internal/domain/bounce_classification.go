@@ -175,6 +175,14 @@ func ClassifyBounce(in BounceInput) BounceClassification {
 			return BounceClassificationSoftCount
 		}
 
+	case EmailProviderKindBrevo:
+		switch bounceType {
+		case "hard_bounce", "invalid":
+			return BounceClassificationHard
+		case "soft_bounce", "blocked":
+			return BounceClassificationSoftCount
+		}
+
 	case EmailProviderKindSMTP:
 		if bounceType == "hardbounce" {
 			return BounceClassificationHard

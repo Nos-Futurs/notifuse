@@ -24,6 +24,8 @@ export const getProviderName = (kind: string): string => {
       return 'Mailjet'
     case 'sendgrid':
       return 'SendGrid'
+    case 'brevo':
+      return 'Brevo'
     case 'supabase':
       return 'Supabase'
     default:
@@ -154,6 +156,23 @@ export const emailProviders: ProviderInfo[] = [
         alt="SendGrid"
         className={`${size === 'small' ? 'h-3 object-contain inline-block' : 'h-6 object-contain inline-block'} ${className}`.trim()}
       />
+    )
+  },
+  {
+    type: 'email',
+    kind: 'brevo',
+    name: 'Brevo',
+    getIcon: (className = '', size = 'small') => (
+      <span
+        className={className}
+        style={{
+          fontWeight: 700,
+          fontSize: size === 'small' ? 12 : 16,
+          color: '#0b996e'
+        }}
+      >
+        Brevo
+      </span>
     )
   }
   // Future integration types can be added here
