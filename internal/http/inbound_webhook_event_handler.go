@@ -192,7 +192,19 @@ func (h *InboundWebhookEventHandler) handleIncomingWebhook(w http.ResponseWriter
 			WithField("integration_id", integrationID).
 			WithField("provider", provider).
 			Error("Failed to process webhook")
-		WriteJSONError(w, "Failed to process webhook", http.StatusBadRequest)
+		status := http.StatusBadRequest
+		// Brevo discards 5xx responses as well as most 4xx responses. Its retry
+		// contract explicitly exempts 429, so preserve callbacks on DB outages.
+		// https://developers.brevo.com/docs/retry-mechanism
+		var workspaceNotFound *domain.ErrWorkspaceNotFound
+		if provider == string(domain.EmailProviderKindBrevo) &&
+			!errors.Is(err, domain.ErrInvalidWebhookPayload) &&
+			!errors.Is(err, domain.ErrInboundIntegrationNotFound) &&
+			!errors.As(err, &workspaceNotFound) {
+			status = http.StatusTooManyRequests
+			w.Header().Set("Retry-After", "60")
+		}
+		WriteJSONError(w, "Failed to process webhook", status)
 		return
 	}
 

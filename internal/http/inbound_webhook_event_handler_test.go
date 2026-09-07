@@ -467,3 +467,29 @@ func TestInboundWebhookEventHandler_handleList_PermissionDenied(t *testing.T) {
 	assert.Equal(t, string(domain.PermissionResourceWebhookEvents), response["resource"])
 	assert.Equal(t, string(domain.PermissionTypeRead), response["permission"])
 }
+
+func TestBrevoWebhookErrorResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"database unavailable", errors.New("database unavailable"), http.StatusTooManyRequests},
+		{"malformed payload", fmt.Errorf("processing: %w", domain.ErrInvalidWebhookPayload), http.StatusBadRequest},
+		{"missing integration", domain.ErrInboundIntegrationNotFound, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, svc, _ := setupInboundWebhookEventHandlerTest(t)
+			svc.EXPECT().ProcessWebhook(gomock.Any(), "workspace", "integration", gomock.Any()).Return(tc.err)
+			req := httptest.NewRequest(http.MethodPost, "/webhooks/email?provider=brevo&workspace_id=workspace&integration_id=integration", bytes.NewBufferString(`{}`))
+			resp := httptest.NewRecorder()
+			handler.handleIncomingWebhook(resp, req)
+			assert.Equal(t, tc.status, resp.Code)
+			if tc.status == http.StatusTooManyRequests {
+				assert.Equal(t, "60", resp.Header().Get("Retry-After"))
+			} else {
+				assert.Empty(t, resp.Header().Get("Retry-After"))
+			}
+		})
+	}
+}

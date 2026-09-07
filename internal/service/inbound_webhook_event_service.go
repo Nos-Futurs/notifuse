@@ -344,6 +344,17 @@ func (s *InboundWebhookEventService) ProcessWebhook(ctx context.Context, workspa
 			}
 
 		case domain.EmailEventBounce:
+			// Brevo soft_bounce and blocked are failed delivery attempts even when
+			// they have not reached the recipient suppression threshold.
+			if event.Source == domain.WebhookSourceBrevo &&
+				(event.BounceType == "soft_bounce" || event.BounceType == "blocked") &&
+				event.MessageID != nil && *event.MessageID != "" {
+				reason := strings.TrimSpace(event.BounceType + ": " + event.BounceDiagnostic)
+				updates = append(updates, domain.MessageEventUpdate{
+					ID: *event.MessageID, Event: domain.MessageEventFailed,
+					Timestamp: event.Timestamp, StatusInfo: &reason,
+				})
+			}
 			class := domain.ClassifyBounce(domain.BounceInput{
 				Provider:   integration.EmailProvider.Kind,
 				Type:       event.BounceType,
@@ -1300,13 +1311,19 @@ func (s *InboundWebhookEventService) processBrevoWebhook(integrationID string, r
 	if err := json.Unmarshal(rawPayload, &payloads); err != nil {
 		var payload domain.BrevoWebhookEvent
 		if err := json.Unmarshal(rawPayload, &payload); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal Brevo webhook payload: %w", err)
+			return nil, fmt.Errorf("%w: failed to unmarshal Brevo webhook: %v", domain.ErrInvalidWebhookPayload, err)
 		}
 		payloads = []domain.BrevoWebhookEvent{payload}
+	}
+	if payloads == nil {
+		return nil, fmt.Errorf("%w: expected a Brevo event object or array", domain.ErrInvalidWebhookPayload)
 	}
 
 	events := make([]*domain.InboundWebhookEvent, 0, len(payloads))
 	for _, payload := range payloads {
+		if strings.TrimSpace(payload.Event) == "" {
+			return nil, fmt.Errorf("%w: missing Brevo event name", domain.ErrInvalidWebhookPayload)
+		}
 		var eventType domain.EmailEventType
 		var bounceType, bounceCategory, complaintType string
 		switch payload.Event {
@@ -1321,7 +1338,7 @@ func (s *InboundWebhookEventService) processBrevoWebhook(integrationID string, r
 		case "blocked":
 			eventType = domain.EmailEventBounce
 			bounceType, bounceCategory = "blocked", "Blocked"
-		case "invalid":
+		case "invalid", "invalid_email":
 			eventType = domain.EmailEventBounce
 			bounceType, bounceCategory = "invalid", "Invalid address"
 		case "spam":
@@ -1343,18 +1360,31 @@ func (s *InboundWebhookEventService) processBrevoWebhook(integrationID string, r
 		if timestampValue > 1_000_000_000_000 {
 			timestampValue /= 1000
 		}
-		timestamp := time.Now().UTC()
-		if timestampValue > 0 {
-			timestamp = time.Unix(timestampValue, 0).UTC()
-		}
+		timestamp := time.Unix(timestampValue, 0).UTC()
 
-		messageID := payload.MessageID
-		if notifuseID := brevoNotifuseMessageID(payload.XMailinCustom); notifuseID != "" {
-			messageID = notifuseID
+		notifuseID := brevoNotifuseMessageID(payload.XMailinCustom)
+		providerID := strings.Trim(strings.TrimSpace(payload.MessageID), "<>")
+		if strings.TrimSpace(payload.Email) == "" || (providerID == "" && notifuseID == "") || timestampValue <= 0 {
+			return nil, fmt.Errorf("%w: Brevo terminal event requires email, message identity, and timestamp", domain.ErrInvalidWebhookPayload)
 		}
+		// A provider Message-ID is not a Notifuse message-history primary key.
+		// Keep unmatched events for suppression and audit, without issuing an
+		// update against an unrelated ID. All Notifuse Brevo sends set this header.
+		var messageID *string
+		if notifuseID != "" {
+			messageID = &notifuseID
+		}
+		identity := providerID
+		if identity == "" {
+			identity = notifuseID
+		}
+		// Brevo's `id` identifies the webhook subscription, not the event. Ignore
+		// it so duplicate subscriptions and individual/batched retries converge
+		// on the existing database primary key. Exclude delivery-time metadata.
+		key, _ := json.Marshal([]string{integrationID, identity, strings.ToLower(strings.TrimSpace(payload.Email)), string(eventType), bounceType, complaintType})
 		event := domain.NewInboundWebhookEvent(
-			uuid.New().String(), eventType, domain.WebhookSourceBrevo, integrationID,
-			payload.Email, &messageID, timestamp, string(rawPayload),
+			uuid.NewSHA1(uuid.NameSpaceURL, append([]byte("notifuse:brevo:"), key...)).String(), eventType, domain.WebhookSourceBrevo, integrationID,
+			payload.Email, messageID, timestamp, string(rawPayload),
 		)
 		if eventType == domain.EmailEventBounce {
 			event.BounceType = bounceType

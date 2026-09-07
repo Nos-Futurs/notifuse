@@ -14,6 +14,9 @@ import (
 // Permanent (client/config) errors for inbound reply processing. The HTTP handler maps
 // these to 4xx so the provider stops retrying, instead of 5xx (which triggers retries).
 var (
+	// ErrInvalidWebhookPayload identifies a permanent payload error, rather than
+	// a temporary database failure for which the provider should retry.
+	ErrInvalidWebhookPayload      = errors.New("invalid webhook payload")
 	ErrInboundIntegrationNotFound = errors.New("inbound: integration not found")
 	ErrInboundProviderUnsupported = errors.New("inbound: provider does not support inbound replies")
 	// ErrInboundControlMessage signals that a ReplyParser handled a provider control
