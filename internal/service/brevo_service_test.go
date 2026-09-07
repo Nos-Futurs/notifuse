@@ -144,3 +144,94 @@ func TestBrevoServicePreservesAPIErrorBody(t *testing.T) {
 	assert.Contains(t, err.Error(), "status code 402")
 	assert.Contains(t, err.Error(), "not_enough_credits")
 }
+
+func TestBrevoServiceWebhookStatusReflectsConfiguredEvents(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		events []string
+		kind   string
+		active []bool
+	}{
+		{"complete", []string{"delivered", "hardBounce", "softBounce", "blocked", "invalid", "spam"}, "transactional", []bool{true, true, true}},
+		{"delivery only", []string{"delivered"}, "transactional", []bool{true, false, false}},
+		{"missing blocked", []string{"delivered", "hardBounce", "softBounce", "invalid", "spam"}, "transactional", []bool{true, false, true}},
+		{"complaints only", []string{"spam"}, "transactional", []bool{false, false, true}},
+		{"marketing webhook", []string{"delivered"}, "marketing", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			client := mocks.NewMockHTTPClient(ctrl)
+			svc := service.NewBrevoService(client, pkgmocks.NewMockLogger(ctrl))
+			provider := &domain.EmailProvider{Kind: domain.EmailProviderKindBrevo, Brevo: &domain.BrevoSettings{APIKey: "test"}}
+			callback := domain.GenerateWebhookCallbackURL("https://notifuse.example", domain.EmailProviderKindBrevo, "workspace", "integration")
+			body, err := json.Marshal(domain.BrevoWebhookListResponse{Webhooks: []domain.BrevoWebhook{{ID: 42, URL: callback, Type: tc.kind, Events: tc.events}}})
+			require.NoError(t, err)
+			client.EXPECT().Do(gomock.Any()).Return(brevoResponse(http.StatusOK, string(body)), nil)
+			status, err := svc.GetWebhookStatus(context.Background(), "workspace", "integration", provider)
+			require.NoError(t, err)
+			assert.Equal(t, tc.kind == "transactional", status.IsRegistered)
+			require.Len(t, status.Endpoints, len(tc.active))
+			for i, active := range tc.active {
+				assert.Equal(t, active, status.Endpoints[i].Active)
+			}
+		})
+	}
+}
+
+func TestBrevoWebhookRegistrationUpdatesInPlace(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+	}{
+		{"success", http.StatusNoContent}, {"update failure retains subscription", http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			client := mocks.NewMockHTTPClient(ctrl)
+			svc := service.NewBrevoService(client, pkgmocks.NewMockLogger(ctrl))
+			provider := &domain.EmailProvider{Brevo: &domain.BrevoSettings{APIKey: "test"}}
+			callback := domain.GenerateWebhookCallbackURL("https://notifuse.example", domain.EmailProviderKindBrevo, "workspace", "integration")
+			body, err := json.Marshal(domain.BrevoWebhookListResponse{Webhooks: []domain.BrevoWebhook{{ID: 42, URL: callback, Type: "transactional", Events: []string{"delivered"}}}})
+			require.NoError(t, err)
+			gomock.InOrder(
+				client.EXPECT().Do(gomock.Any()).Return(brevoResponse(http.StatusOK, string(body)), nil),
+				client.EXPECT().Do(gomock.Any()).DoAndReturn(func(req *http.Request) (*http.Response, error) {
+					assert.Equal(t, http.MethodPut, req.Method)
+					assert.Equal(t, "/v3/webhooks/42", req.URL.Path)
+					var update struct {
+						Events []string `json:"events"`
+					}
+					require.NoError(t, json.NewDecoder(req.Body).Decode(&update))
+					assert.ElementsMatch(t, []string{"delivered", "hardBounce", "softBounce", "blocked", "invalid", "spam"}, update.Events)
+					return brevoResponse(tc.status, `{}`), nil
+				}),
+			)
+			status, err := svc.RegisterWebhooks(context.Background(), "workspace", "integration", "https://notifuse.example", []domain.EmailEventType{domain.EmailEventDelivered, domain.EmailEventBounce, domain.EmailEventComplaint}, provider)
+			if tc.status == http.StatusNoContent {
+				require.NoError(t, err)
+				require.Len(t, status.Endpoints, 3)
+				assert.Equal(t, "42", status.Endpoints[0].WebhookID)
+			} else {
+				require.Error(t, err)
+				assert.Nil(t, status)
+			}
+		})
+	}
+}
+
+func TestBrevoWebhookRegistrationNoOpAndUnsupportedEvents(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	client := mocks.NewMockHTTPClient(ctrl)
+	svc := service.NewBrevoService(client, pkgmocks.NewMockLogger(ctrl))
+	provider := &domain.EmailProvider{Brevo: &domain.BrevoSettings{APIKey: "test"}}
+	_, err := svc.RegisterWebhooks(context.Background(), "workspace", "integration", "https://notifuse.example", nil, provider)
+	require.Error(t, err)
+	callback := domain.GenerateWebhookCallbackURL("https://notifuse.example", domain.EmailProviderKindBrevo, "workspace", "integration")
+	body, err := json.Marshal(domain.BrevoWebhookListResponse{Webhooks: []domain.BrevoWebhook{{ID: 42, URL: callback, Type: "transactional", Events: []string{"delivered"}}}})
+	require.NoError(t, err)
+	client.EXPECT().Do(gomock.Any()).Return(brevoResponse(http.StatusOK, string(body)), nil)
+	status, err := svc.RegisterWebhooks(context.Background(), "workspace", "integration", "https://notifuse.example", []domain.EmailEventType{domain.EmailEventDelivered}, provider)
+	require.NoError(t, err)
+	require.Len(t, status.Endpoints, 1)
+	assert.True(t, status.Endpoints[0].Active)
+}

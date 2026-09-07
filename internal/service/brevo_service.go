@@ -141,6 +141,30 @@ func (s *BrevoService) deleteWebhook(ctx context.Context, config domain.BrevoSet
 	return nil
 }
 
+// updateWebhook preserves the existing subscription when an update fails.
+// Deleting first would lose working delivery events during an API outage.
+func (s *BrevoService) updateWebhook(ctx context.Context, config domain.BrevoSettings, webhookID int64, events []string) error {
+	body, err := json.Marshal(struct {
+		Events []string `json:"events"`
+	}{Events: events})
+	if err != nil {
+		return err
+	}
+	req, err := s.newRequest(ctx, http.MethodPut, "/v3/webhooks/"+strconv.FormatInt(webhookID, 10), config.APIKey, body)
+	if err != nil {
+		return err
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to update Brevo webhook: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		return brevoAPIError(resp)
+	}
+	return nil
+}
+
 func brevoWebhookEvents(eventTypes []domain.EmailEventType) []string {
 	set := map[string]struct{}{}
 	for _, eventType := range eventTypes {
@@ -179,6 +203,32 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
+// Match callback identity by URL components, allowing query reordering while
+// refusing a different path, integration, workspace, or duplicate query value.
+func brevoCallbackMatches(candidate, expected string) bool {
+	actual, err := url.Parse(candidate)
+	if err != nil || actual.Host == "" || (actual.Scheme != "https" && actual.Scheme != "http") || actual.User != nil || actual.Fragment != "" {
+		return false
+	}
+	want, err := url.Parse(expected)
+	if err != nil || actual.Path != want.Path {
+		return false
+	}
+	if want.Host != "" && (actual.Host != want.Host || actual.Scheme != want.Scheme) {
+		return false
+	}
+	query, err := url.ParseQuery(actual.RawQuery)
+	if err != nil {
+		return false
+	}
+	for key, values := range want.Query() {
+		if !sameStrings(query[key], values) {
+			return false
+		}
+	}
+	return true
+}
+
 func brevoWebhookStatus(workspaceID, integrationID, webhookURL string, webhookID int64, eventTypes []domain.EmailEventType) *domain.WebhookRegistrationStatus {
 	status := &domain.WebhookRegistrationStatus{
 		EmailProviderKind: domain.EmailProviderKindBrevo,
@@ -201,20 +251,24 @@ func (s *BrevoService) RegisterWebhooks(ctx context.Context, workspaceID, integr
 	}
 	webhookURL := domain.GenerateWebhookCallbackURL(baseURL, domain.EmailProviderKindBrevo, workspaceID, integrationID)
 	desiredEvents := brevoWebhookEvents(eventTypes)
+	if len(desiredEvents) == 0 {
+		return nil, fmt.Errorf("no supported Brevo webhook events requested")
+	}
 	webhooks, err := s.listWebhooks(ctx, *providerConfig.Brevo)
 	if err != nil {
 		return nil, err
 	}
 	for _, webhook := range webhooks {
-		if webhook.URL != webhookURL {
+		if webhook.Type != "transactional" || !brevoCallbackMatches(webhook.URL, webhookURL) {
 			continue
 		}
 		if sameStrings(webhook.Events, desiredEvents) {
 			return brevoWebhookStatus(workspaceID, integrationID, webhookURL, webhook.ID, eventTypes), nil
 		}
-		if err := s.deleteWebhook(ctx, *providerConfig.Brevo, webhook.ID); err != nil {
-			return nil, fmt.Errorf("failed to replace Brevo webhook: %w", err)
+		if err := s.updateWebhook(ctx, *providerConfig.Brevo, webhook.ID, desiredEvents); err != nil {
+			return nil, err
 		}
+		return brevoWebhookStatus(workspaceID, integrationID, webhookURL, webhook.ID, eventTypes), nil
 	}
 	webhookID, err := s.createWebhook(ctx, *providerConfig.Brevo, webhookURL, "Notifuse delivery events", desiredEvents)
 	if err != nil {
@@ -232,14 +286,30 @@ func (s *BrevoService) GetWebhookStatus(ctx context.Context, workspaceID, integr
 	if err != nil {
 		return nil, err
 	}
+	status := brevoWebhookStatus(workspaceID, integrationID, webhookURL, 0, nil)
 	for _, webhook := range webhooks {
-		if len(webhook.URL) >= len(webhookURL) && webhook.URL[len(webhook.URL)-len(webhookURL):] == webhookURL {
-			return brevoWebhookStatus(workspaceID, integrationID, webhook.URL, webhook.ID, []domain.EmailEventType{
-				domain.EmailEventDelivered, domain.EmailEventBounce, domain.EmailEventComplaint,
-			}), nil
+		if webhook.Type != "transactional" || !brevoCallbackMatches(webhook.URL, webhookURL) {
+			continue
+		}
+		status.IsRegistered = true
+		configured := make(map[string]bool, len(webhook.Events))
+		for _, event := range webhook.Events {
+			configured[event] = true
+		}
+		for _, eventType := range []domain.EmailEventType{
+			domain.EmailEventDelivered, domain.EmailEventBounce, domain.EmailEventComplaint,
+		} {
+			active := true
+			for _, required := range brevoWebhookEvents([]domain.EmailEventType{eventType}) {
+				active = active && configured[required]
+			}
+			status.Endpoints = append(status.Endpoints, domain.WebhookEndpointStatus{
+				WebhookID: strconv.FormatInt(webhook.ID, 10), URL: webhook.URL,
+				EventType: eventType, Active: active,
+			})
 		}
 	}
-	return brevoWebhookStatus(workspaceID, integrationID, webhookURL, 0, nil), nil
+	return status, nil
 }
 
 func (s *BrevoService) UnregisterWebhooks(ctx context.Context, workspaceID, integrationID string, providerConfig *domain.EmailProvider) error {
@@ -252,7 +322,7 @@ func (s *BrevoService) UnregisterWebhooks(ctx context.Context, workspaceID, inte
 		return err
 	}
 	for _, webhook := range webhooks {
-		if len(webhook.URL) >= len(webhookSuffix) && webhook.URL[len(webhook.URL)-len(webhookSuffix):] == webhookSuffix {
+		if webhook.Type == "transactional" && brevoCallbackMatches(webhook.URL, webhookSuffix) {
 			if err := s.deleteWebhook(ctx, *providerConfig.Brevo, webhook.ID); err != nil {
 				return err
 			}
