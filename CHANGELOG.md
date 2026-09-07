@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- **Fix**: Brevo recognizes `invalid_email` callbacks and suppresses invalid recipients. Duplicate delivery callbacks no longer inflate bounce counts, including retries through multiple webhook subscriptions.
+- **Improvement**: Brevo soft bounces and blocked deliveries appear as failed messages with the provider reason while retaining the existing recipient suppression threshold. Temporary webhook processing failures request a Brevo retry.
+- **Fix**: Brevo webhook status reflects actual event subscriptions. Re-registration updates existing subscriptions in place, preserving them if an API update fails.
+
 ## [39.1] - 2026-08-29
 
 - **Feature**: Zapier can send. A Zap can now send one of your transactional notifications — an order confirmation, a password reset, a shipping update — picking the notification from a list, choosing who receives it, and filling the template's variables from whatever triggered the Zap. The template, the sender and the tracking stay in Notifuse; the Zap only supplies the recipient and the data. Sending creates the contact if the address is new, and updates it with any contact fields the Zap fills in. Giving the step your own message identifier makes it idempotent: sending again with the same one returns the original message instead of a second email, which is what protects a password reset when Zapier retries a step.
